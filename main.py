@@ -37,7 +37,7 @@ CANVAS_HEIGHT_MM = 148
 CIRCLE_DIAMETER_MM = 54
 DRAW_TEST_BORDER = True
 DEFAULT_ZOOM = 1.12
-MIN_ZOOM = 1.0
+MIN_ZOOM = 0.5
 MAX_ZOOM = 2.0
 
 
@@ -130,22 +130,19 @@ def make_circle_image(image: Image.Image, size: int, adjustment: dict) -> Image.
     image = image.convert("RGB")
 
     width, height = image.size
-    side = min(width, height)
-    left = (width - side) // 2
-    top = (height - side) // 2
-
-    image = image.crop((left, top, left + side, top + side))
-
     zoom = max(MIN_ZOOM, min(MAX_ZOOM, adjustment["zoom"]))
-    scaled_size = round(size * zoom)
-    image = image.resize((scaled_size, scaled_size), Image.Resampling.LANCZOS)
+    base_scale = max(size / width, size / height)
+    scaled_width = round(width * base_scale * zoom)
+    scaled_height = round(height * base_scale * zoom)
+    image = image.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
 
-    max_offset = max(0, (scaled_size - size) // 2)
-    offset_x = max(-max_offset, min(max_offset, adjustment["offset_x"]))
-    offset_y = max(-max_offset, min(max_offset, adjustment["offset_y"]))
+    max_offset_x = max(0, (scaled_width - size) // 2)
+    max_offset_y = max(0, (scaled_height - size) // 2)
+    offset_x = max(-max_offset_x, min(max_offset_x, adjustment["offset_x"]))
+    offset_y = max(-max_offset_y, min(max_offset_y, adjustment["offset_y"]))
 
-    left = (size - scaled_size) // 2 + offset_x
-    top = (size - scaled_size) // 2 + offset_y
+    left = (size - scaled_width) // 2 + offset_x
+    top = (size - scaled_height) // 2 + offset_y
     square = Image.new("RGB", (size, size), (255, 255, 255))
     square.paste(image, (left, top))
 
