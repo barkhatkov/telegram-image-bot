@@ -21,6 +21,26 @@ app = FastAPI()
 albums = defaultdict(list)
 album_tasks = {}
 
+DPI = 300
+CANVAS_WIDTH_MM = 99
+CANVAS_HEIGHT_MM = 148
+CIRCLE_DIAMETER_MM = 44
+DRAW_TEST_BORDER = True
+
+
+def mm_to_px(value_mm: float) -> int:
+    return round(value_mm / 25.4 * DPI)
+
+
+CANVAS_WIDTH_PX = mm_to_px(CANVAS_WIDTH_MM)
+CANVAS_HEIGHT_PX = mm_to_px(CANVAS_HEIGHT_MM)
+CIRCLE_DIAMETER_PX = mm_to_px(CIRCLE_DIAMETER_MM)
+CIRCLE_POSITIONS_PX = [
+    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(7)),
+    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(52)),
+    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(97)),
+]
+
 
 def make_circle_image(image: Image.Image, size: int) -> Image.Image:
     image = image.convert("RGB")
@@ -43,29 +63,27 @@ def make_circle_image(image: Image.Image, size: int) -> Image.Image:
 
 
 async def build_result_image(messages: list[Message]) -> BufferedInputFile:
-    canvas_width = 1200
-    canvas_height = 800
-    circle_size = 280
+    canvas = Image.new("RGBA", (CANVAS_WIDTH_PX, CANVAS_HEIGHT_PX), (255, 255, 255, 255))
 
-    canvas = Image.new("RGBA", (canvas_width, canvas_height), (245, 245, 245, 255))
-
-    positions = [
-        (120, 260),
-        (460, 260),
-        (800, 260),
-    ]
-
-    for message, position in zip(sorted(messages, key=lambda m: m.message_id), positions):
+    for message, position in zip(sorted(messages, key=lambda m: m.message_id), CIRCLE_POSITIONS_PX):
         buffer = io.BytesIO()
         await bot.download(message.photo[-1], destination=buffer)
         buffer.seek(0)
 
         source_image = Image.open(buffer)
-        circle_image = make_circle_image(source_image, circle_size)
+        circle_image = make_circle_image(source_image, CIRCLE_DIAMETER_PX)
         canvas.alpha_composite(circle_image, position)
 
+    if DRAW_TEST_BORDER:
+        draw = ImageDraw.Draw(canvas)
+        draw.rectangle(
+            (0, 0, CANVAS_WIDTH_PX - 1, CANVAS_HEIGHT_PX - 1),
+            outline=(220, 30, 30, 255),
+            width=3,
+        )
+
     output = io.BytesIO()
-    canvas.save(output, format="PNG")
+    canvas.convert("RGB").save(output, format="PNG", dpi=(DPI, DPI))
     output.seek(0)
 
     return BufferedInputFile(output.read(), filename="result.png")
@@ -88,7 +106,7 @@ async def process_album_later(key):
             return
 
         result_image = await build_result_image(messages)
-        await bot.send_photo(chat_id, result_image, caption="Готово")
+        await bot.send_document(chat_id, result_image, caption="Готово")
 
     except asyncio.CancelledError:
         return
