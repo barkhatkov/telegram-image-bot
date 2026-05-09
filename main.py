@@ -28,7 +28,6 @@ app = FastAPI()
 
 albums = defaultdict(list)
 album_tasks = {}
-pending_single_photos = defaultdict(list)
 last_collages = {}
 pending_adjustments = {}
 
@@ -50,9 +49,9 @@ CANVAS_WIDTH_PX = mm_to_px(CANVAS_WIDTH_MM)
 CANVAS_HEIGHT_PX = mm_to_px(CANVAS_HEIGHT_MM)
 CIRCLE_DIAMETER_PX = mm_to_px(CIRCLE_DIAMETER_MM)
 CIRCLE_POSITIONS_PX = [
-    (mm_to_px(0), mm_to_px(0)),
-    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(CANVAS_HEIGHT_MM - CIRCLE_DIAMETER_MM)),
-    (mm_to_px(CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM), mm_to_px(30)),
+    (mm_to_px(5), mm_to_px(5)),
+    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(92)),
+    (mm_to_px(43), mm_to_px(44)),
 ]
 
 
@@ -195,10 +194,9 @@ async def process_album_later(key):
         album_tasks.pop(key, None)
 
         if len(messages) < 3:
-            missing_count = 3 - len(messages)
             await bot.send_message(
                 chat_id,
-                f"Получил фото: {len(messages)}. Жду еще: {missing_count}.",
+                "Необходимо загрузить три фотографии одновременно, а не последовательно.",
             )
             return
 
@@ -236,8 +234,7 @@ async def handle_start(message: Message):
     pending_adjustments.pop(message.chat.id, None)
     await message.answer(
         "Привет, загружай 3 фотографии для коллажа.\n"
-        "После результата можно настроить каждое фото кнопками.",
-        reply_markup=photo_keyboard(),
+        "После результата можно будет настроить каждое фото кнопками.",
     )
 
 
@@ -325,27 +322,8 @@ async def handle_text(message: Message):
 @router.message(F.photo)
 async def handle_photo(message: Message):
     if not message.media_group_id:
-        pending_single_photos[message.chat.id].append(message.photo[-1].file_id)
-        photo_count = len(pending_single_photos[message.chat.id])
-
-        if photo_count < 3:
-            await message.answer(f"Получил фото: {photo_count}. Жду еще: {3 - photo_count}.")
-            return
-
-        file_ids = pending_single_photos.pop(message.chat.id)
-        adjustments = make_default_adjustments()
-        last_collages[message.chat.id] = {"file_ids": file_ids, "adjustments": adjustments}
-        pending_adjustments.pop(message.chat.id, None)
-
-        result_image = await build_result_image(file_ids, adjustments)
-        await bot.send_document(message.chat.id, result_image, caption="Готово")
-        await message.answer(
-            "Можно настроить положение фото. Выберите фото:",
-            reply_markup=photo_keyboard(),
-        )
+        await message.answer("Необходимо загрузить три фотографии одновременно, а не последовательно.")
         return
-
-    pending_single_photos.pop(message.chat.id, None)
 
     key = (message.chat.id, message.media_group_id)
     albums[key].append(message)
