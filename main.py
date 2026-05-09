@@ -4,6 +4,7 @@ import os
 from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.filters import CommandStart
 from aiogram.types import BufferedInputFile, Message, Update
 from fastapi import FastAPI, HTTPException, Request
 from PIL import Image, ImageDraw
@@ -24,7 +25,7 @@ album_tasks = {}
 DPI = 300
 CANVAS_WIDTH_MM = 99
 CANVAS_HEIGHT_MM = 148
-CIRCLE_DIAMETER_MM = 44
+CIRCLE_DIAMETER_MM = 54
 DRAW_TEST_BORDER = True
 
 
@@ -36,9 +37,9 @@ CANVAS_WIDTH_PX = mm_to_px(CANVAS_WIDTH_MM)
 CANVAS_HEIGHT_PX = mm_to_px(CANVAS_HEIGHT_MM)
 CIRCLE_DIAMETER_PX = mm_to_px(CIRCLE_DIAMETER_MM)
 CIRCLE_POSITIONS_PX = [
-    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(7)),
-    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(52)),
-    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(97)),
+    (mm_to_px(0), mm_to_px(0)),
+    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(CANVAS_HEIGHT_MM - CIRCLE_DIAMETER_MM)),
+    (mm_to_px(CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM), mm_to_px(30)),
 ]
 
 
@@ -98,7 +99,15 @@ async def process_album_later(key):
         messages = albums.pop(key, [])
         album_tasks.pop(key, None)
 
-        if len(messages) != 3:
+        if len(messages) < 3:
+            missing_count = 3 - len(messages)
+            await bot.send_message(
+                chat_id,
+                f"Получил фото: {len(messages)}. Жду еще: {missing_count}.",
+            )
+            return
+
+        if len(messages) > 3:
             await bot.send_message(
                 chat_id,
                 f"Получил фото: {len(messages)}. Нужно отправить ровно 3 фото одним альбомом.",
@@ -114,10 +123,15 @@ async def process_album_later(key):
         await bot.send_message(chat_id, f"Не получилось собрать картинку: {error}")
 
 
+@router.message(CommandStart())
+async def handle_start(message: Message):
+    await message.answer("Привет, загружай 3 фотографии для коллажа.")
+
+
 @router.message(F.photo)
 async def handle_photo(message: Message):
     if not message.media_group_id:
-        await message.answer("Отправьте ровно 3 фото одним альбомом.")
+        await message.answer("Получил фото: 1. Жду еще: 2.")
         return
 
     key = (message.chat.id, message.media_group_id)
