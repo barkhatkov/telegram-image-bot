@@ -49,10 +49,11 @@ CANVAS_WIDTH_PX = mm_to_px(CANVAS_WIDTH_MM)
 CANVAS_HEIGHT_PX = mm_to_px(CANVAS_HEIGHT_MM)
 CIRCLE_DIAMETER_PX = mm_to_px(CIRCLE_DIAMETER_MM)
 CIRCLE_POSITIONS_PX = [
-    (mm_to_px(5), mm_to_px(5)),
-    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(92)),
-    (mm_to_px(43), mm_to_px(44)),
+    (mm_to_px(5), mm_to_px(4)),
+    (mm_to_px(43), mm_to_px(43)),
+    (mm_to_px((CANVAS_WIDTH_MM - CIRCLE_DIAMETER_MM) / 2), mm_to_px(94)),
 ]
+PHOTO_LABELS = ["верхнее", "среднее", "нижнее"]
 
 
 def make_default_adjustments() -> list[dict]:
@@ -87,9 +88,9 @@ def photo_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Фото 1", callback_data="photo:0"),
-                InlineKeyboardButton(text="Фото 2", callback_data="photo:1"),
-                InlineKeyboardButton(text="Фото 3", callback_data="photo:2"),
+                InlineKeyboardButton(text="Фото верхнее", callback_data="photo:0"),
+                InlineKeyboardButton(text="Фото среднее", callback_data="photo:1"),
+                InlineKeyboardButton(text="Фото нижнее", callback_data="photo:2"),
             ]
         ]
     )
@@ -253,7 +254,7 @@ async def handle_photo_button(callback: CallbackQuery):
     pending_adjustments.pop(callback.message.chat.id, None)
     photo_index = int(callback.data.split(":")[1])
     await callback.message.edit_text(
-        f"Фото {photo_index + 1}. Выберите, что изменить:",
+        f"Фото {PHOTO_LABELS[photo_index]}. Выберите, что изменить:",
         reply_markup=adjustment_keyboard(photo_index),
     )
     await callback.answer()
@@ -274,7 +275,7 @@ async def handle_adjustment_button(callback: CallbackQuery):
         "action": action,
     }
     await callback.message.edit_text(
-        f"Фото {photo_index + 1}: {ACTION_NAMES[action]}.\n"
+        f"Фото {PHOTO_LABELS[photo_index]}: {ACTION_NAMES[action]}.\n"
         "Введите процент от 1 до 99 следующим сообщением.",
         reply_markup=adjustment_keyboard(photo_index),
     )
@@ -308,13 +309,13 @@ async def handle_text(message: Message):
         result_image = await build_result_image(collage["file_ids"], collage["adjustments"])
         await bot.send_document(message.chat.id, result_image, caption="Готово, обновил")
         await message.answer(
-            f"Фото {photo_index + 1}. Выберите следующее действие:",
+            f"Фото {PHOTO_LABELS[photo_index]}. Выберите следующее действие:",
             reply_markup=adjustment_keyboard(photo_index),
         )
         return
 
     await message.answer(
-        "Для настройки используйте кнопки: Фото 1, Фото 2 или Фото 3.",
+        "Для настройки используйте кнопки: Фото верхнее, Фото среднее или Фото нижнее.",
         reply_markup=photo_keyboard(),
     )
 
