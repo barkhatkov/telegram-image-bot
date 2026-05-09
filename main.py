@@ -5,7 +5,14 @@ from collections import defaultdict
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart
-from aiogram.types import BufferedInputFile, Message, Update
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    Update,
+)
 from fastapi import FastAPI, HTTPException, Request
 from PIL import Image, ImageDraw
 
@@ -23,6 +30,7 @@ albums = defaultdict(list)
 album_tasks = {}
 pending_single_photos = defaultdict(list)
 last_collages = {}
+pending_adjustments = {}
 
 DPI = 300
 CANVAS_WIDTH_MM = 99
@@ -30,8 +38,6 @@ CANVAS_HEIGHT_MM = 148
 CIRCLE_DIAMETER_MM = 54
 DRAW_TEST_BORDER = True
 DEFAULT_ZOOM = 1.12
-MOVE_STEP_PX = 45
-ZOOM_STEP = 0.12
 MIN_ZOOM = 1.0
 MAX_ZOOM = 2.0
 
@@ -56,6 +62,68 @@ def make_default_adjustments() -> list[dict]:
         {"offset_x": 0, "offset_y": 0, "zoom": DEFAULT_ZOOM},
         {"offset_x": 0, "offset_y": 0, "zoom": DEFAULT_ZOOM},
     ]
+
+
+def apply_adjustment(adjustment: dict, action: str, percent: int) -> None:
+    ratio = percent / 100
+    step = round(CIRCLE_DIAMETER_PX * ratio)
+
+    if action == "up":
+        adjustment["offset_y"] -= step
+    elif action == "down":
+        adjustment["offset_y"] += step
+    elif action == "left":
+        adjustment["offset_x"] -= step
+    elif action == "right":
+        adjustment["offset_x"] += step
+    elif action == "bigger":
+        adjustment["zoom"] *= 1 + ratio
+    elif action == "smaller":
+        adjustment["zoom"] /= 1 + ratio
+
+    adjustment["zoom"] = max(MIN_ZOOM, min(MAX_ZOOM, adjustment["zoom"]))
+
+
+def photo_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Фото 1", callback_data="photo:0"),
+                InlineKeyboardButton(text="Фото 2", callback_data="photo:1"),
+                InlineKeyboardButton(text="Фото 3", callback_data="photo:2"),
+            ]
+        ]
+    )
+
+
+def adjustment_keyboard(photo_index: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Выше", callback_data=f"adjust:{photo_index}:up"),
+                InlineKeyboardButton(text="Ниже", callback_data=f"adjust:{photo_index}:down"),
+            ],
+            [
+                InlineKeyboardButton(text="Левее", callback_data=f"adjust:{photo_index}:left"),
+                InlineKeyboardButton(text="Правее", callback_data=f"adjust:{photo_index}:right"),
+            ],
+            [
+                InlineKeyboardButton(text="Крупнее", callback_data=f"adjust:{photo_index}:bigger"),
+                InlineKeyboardButton(text="Меньше", callback_data=f"adjust:{photo_index}:smaller"),
+            ],
+            [InlineKeyboardButton(text="Назад к фото", callback_data="photos")],
+        ]
+    )
+
+
+ACTION_NAMES = {
+    "up": "выше",
+    "down": "ниже",
+    "left": "левее",
+    "right": "правее",
+    "bigger": "крупнее",
+    "smaller": "меньше",
+}
 
 
 def make_circle_image(image: Image.Image, size: int, adjustment: dict) -> Image.Image:
@@ -117,57 +185,6 @@ async def build_result_image(file_ids: list[str], adjustments: list[dict]) -> Bu
     return BufferedInputFile(output.read(), filename="result.png")
 
 
-def parse_adjustment_request(text: str, current_adjustments: list[dict]) -> list[dict] | None:
-    text = text.lower().replace(",", " ")
-    words = text.split()
-    adjustments = [item.copy() for item in current_adjustments]
-    changed = False
-    selected_indexes = [0, 1, 2]
-
-    for word in words:
-        clean_word = word.strip(".:;!?")
-        if clean_word in {"1", "1й", "1-й", "первый", "первую", "первое"}:
-            selected_indexes = [0]
-            continue
-        elif clean_word in {"2", "2й", "2-й", "второй", "вторую", "второе"}:
-            selected_indexes = [1]
-            continue
-        elif clean_word in {"3", "3й", "3-й", "третий", "третью", "третье"}:
-            selected_indexes = [2]
-            continue
-
-        if clean_word in {"выше", "вверх", "подними", "поднять"}:
-            for index in selected_indexes:
-                adjustments[index]["offset_y"] -= MOVE_STEP_PX
-            changed = True
-        elif clean_word in {"ниже", "вниз", "опусти", "опустить"}:
-            for index in selected_indexes:
-                adjustments[index]["offset_y"] += MOVE_STEP_PX
-            changed = True
-        elif clean_word in {"левее", "влево", "налево"}:
-            for index in selected_indexes:
-                adjustments[index]["offset_x"] -= MOVE_STEP_PX
-            changed = True
-        elif clean_word in {"правее", "вправо", "направо"}:
-            for index in selected_indexes:
-                adjustments[index]["offset_x"] += MOVE_STEP_PX
-            changed = True
-        elif clean_word in {"крупнее", "увеличь", "увеличить", "приблизь", "приблизить"}:
-            for index in selected_indexes:
-                adjustments[index]["zoom"] += ZOOM_STEP
-            changed = True
-        elif clean_word in {"мельче", "уменьши", "уменьшить", "отдали", "отдалить"}:
-            for index in selected_indexes:
-                adjustments[index]["zoom"] -= ZOOM_STEP
-            changed = True
-
-    for index in range(3):
-        adjustment = adjustments[index]
-        adjustment["zoom"] = max(MIN_ZOOM, min(MAX_ZOOM, adjustment["zoom"]))
-
-    return adjustments if changed else None
-
-
 async def process_album_later(key):
     chat_id, media_group_id = key
 
@@ -198,9 +215,15 @@ async def process_album_later(key):
         ]
         adjustments = make_default_adjustments()
         last_collages[chat_id] = {"file_ids": file_ids, "adjustments": adjustments}
+        pending_adjustments.pop(chat_id, None)
 
         result_image = await build_result_image(file_ids, adjustments)
         await bot.send_document(chat_id, result_image, caption="Готово")
+        await bot.send_message(
+            chat_id,
+            "Можно настроить положение фото. Выберите фото:",
+            reply_markup=photo_keyboard(),
+        )
 
     except asyncio.CancelledError:
         return
@@ -210,10 +233,55 @@ async def process_album_later(key):
 
 @router.message(CommandStart())
 async def handle_start(message: Message):
+    pending_adjustments.pop(message.chat.id, None)
     await message.answer(
         "Привет, загружай 3 фотографии для коллажа.\n"
-        "После результата можно написать: 1 выше, 2 крупнее, 3 правее."
+        "После результата можно настроить каждое фото кнопками.",
+        reply_markup=photo_keyboard(),
     )
+
+
+@router.callback_query(F.data == "photos")
+async def handle_photos_button(callback: CallbackQuery):
+    pending_adjustments.pop(callback.message.chat.id, None)
+    await callback.message.edit_text(
+        "Выберите фото для настройки:",
+        reply_markup=photo_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("photo:"))
+async def handle_photo_button(callback: CallbackQuery):
+    pending_adjustments.pop(callback.message.chat.id, None)
+    photo_index = int(callback.data.split(":")[1])
+    await callback.message.edit_text(
+        f"Фото {photo_index + 1}. Выберите, что изменить:",
+        reply_markup=adjustment_keyboard(photo_index),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("adjust:"))
+async def handle_adjustment_button(callback: CallbackQuery):
+    _, photo_index_text, action = callback.data.split(":")
+    photo_index = int(photo_index_text)
+
+    collage = last_collages.get(callback.message.chat.id)
+    if not collage:
+        await callback.answer("Сначала загрузите 3 фотографии.", show_alert=True)
+        return
+
+    pending_adjustments[callback.message.chat.id] = {
+        "photo_index": photo_index,
+        "action": action,
+    }
+    await callback.message.edit_text(
+        f"Фото {photo_index + 1}: {ACTION_NAMES[action]}.\n"
+        "Введите процент от 1 до 99 следующим сообщением.",
+        reply_markup=adjustment_keyboard(photo_index),
+    )
+    await callback.answer()
 
 
 @router.message(F.text)
@@ -223,16 +291,35 @@ async def handle_text(message: Message):
         await message.answer("Сначала загружай 3 фотографии для коллажа.")
         return
 
-    adjustments = parse_adjustment_request(message.text or "", collage["adjustments"])
-    if adjustments is None:
+    pending_adjustment = pending_adjustments.get(message.chat.id)
+    if pending_adjustment:
+        percent_text = (message.text or "").strip().replace("%", "")
+        if not percent_text.isdigit():
+            await message.answer("Введите число от 1 до 99, например: 10")
+            return
+
+        percent = int(percent_text)
+        if percent < 1 or percent > 99:
+            await message.answer("Процент должен быть от 1 до 99.")
+            return
+
+        pending_adjustments.pop(message.chat.id, None)
+        photo_index = pending_adjustment["photo_index"]
+        action = pending_adjustment["action"]
+        apply_adjustment(collage["adjustments"][photo_index], action, percent)
+
+        result_image = await build_result_image(collage["file_ids"], collage["adjustments"])
+        await bot.send_document(message.chat.id, result_image, caption="Готово, обновил")
         await message.answer(
-            "Не понял настройку. Можно написать, например: 1 выше, 2 крупнее, 3 правее."
+            f"Фото {photo_index + 1}. Выберите следующее действие:",
+            reply_markup=adjustment_keyboard(photo_index),
         )
         return
 
-    collage["adjustments"] = adjustments
-    result_image = await build_result_image(collage["file_ids"], adjustments)
-    await bot.send_document(message.chat.id, result_image, caption="Готово, обновил")
+    await message.answer(
+        "Для настройки используйте кнопки: Фото 1, Фото 2 или Фото 3.",
+        reply_markup=photo_keyboard(),
+    )
 
 
 @router.message(F.photo)
@@ -248,9 +335,14 @@ async def handle_photo(message: Message):
         file_ids = pending_single_photos.pop(message.chat.id)
         adjustments = make_default_adjustments()
         last_collages[message.chat.id] = {"file_ids": file_ids, "adjustments": adjustments}
+        pending_adjustments.pop(message.chat.id, None)
 
         result_image = await build_result_image(file_ids, adjustments)
         await bot.send_document(message.chat.id, result_image, caption="Готово")
+        await message.answer(
+            "Можно настроить положение фото. Выберите фото:",
+            reply_markup=photo_keyboard(),
+        )
         return
 
     pending_single_photos.pop(message.chat.id, None)
