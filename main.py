@@ -87,11 +87,9 @@ def apply_adjustment(adjustment: dict, action: str, percent: int) -> None:
 def photo_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Фото верхнее", callback_data="photo:0"),
-                InlineKeyboardButton(text="Фото среднее", callback_data="photo:1"),
-                InlineKeyboardButton(text="Фото нижнее", callback_data="photo:2"),
-            ]
+            [InlineKeyboardButton(text="Фото верхнее", callback_data="photo:0")],
+            [InlineKeyboardButton(text="Фото среднее", callback_data="photo:1")],
+            [InlineKeyboardButton(text="Фото нижнее", callback_data="photo:2")],
         ]
     )
 
@@ -99,18 +97,12 @@ def photo_keyboard() -> InlineKeyboardMarkup:
 def adjustment_keyboard(photo_index: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Выше", callback_data=f"adjust:{photo_index}:up"),
-                InlineKeyboardButton(text="Ниже", callback_data=f"adjust:{photo_index}:down"),
-            ],
-            [
-                InlineKeyboardButton(text="Левее", callback_data=f"adjust:{photo_index}:left"),
-                InlineKeyboardButton(text="Правее", callback_data=f"adjust:{photo_index}:right"),
-            ],
-            [
-                InlineKeyboardButton(text="Крупнее", callback_data=f"adjust:{photo_index}:bigger"),
-                InlineKeyboardButton(text="Меньше", callback_data=f"adjust:{photo_index}:smaller"),
-            ],
+            [InlineKeyboardButton(text="Выше", callback_data=f"adjust:{photo_index}:up")],
+            [InlineKeyboardButton(text="Ниже", callback_data=f"adjust:{photo_index}:down")],
+            [InlineKeyboardButton(text="Левее", callback_data=f"adjust:{photo_index}:left")],
+            [InlineKeyboardButton(text="Правее", callback_data=f"adjust:{photo_index}:right")],
+            [InlineKeyboardButton(text="Крупнее", callback_data=f"adjust:{photo_index}:bigger")],
+            [InlineKeyboardButton(text="Меньше", callback_data=f"adjust:{photo_index}:smaller")],
             [InlineKeyboardButton(text="Назад к фото", callback_data="photos")],
         ]
     )
